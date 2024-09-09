@@ -1,0 +1,77 @@
+import os
+import subprocess
+
+def get_certificate_details(jks_file, jks_password):
+    command = ["keytool", "-list", "-v", "-keystore", jks_file, "-storepass", jks_password]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+
+    if process.returncode != 0:
+        print("Erreur lors de la lecture du keystore {}: {}".format(jks_file, stderr))
+        return []
+
+    certificates = []
+    current_cert = {}
+
+    for line in stdout.splitlines():
+        line = line.strip()
+        if line.startswith("Alias name:"):
+            if current_cert:
+                certificates.append(current_cert)
+            current_cert = {"alias": line.split(": ")[1]}
+        elif line.startswith("Serial number:"):
+            current_cert["serial_number"] = line.split(": ")[1]
+        elif line.startswith("Valid from:"):
+            valid_from = line.split(" until: ")
+            current_cert["expiration_date"] = valid_from[1]
+
+    if current_cert:
+        certificates.append(current_cert)
+
+    return certificates
+
+def compare_jks(jks1, jks2, password1, password2):
+    certs_jks1 = get_certificate_details(jks1, password1)
+    certs_jks2 = get_certificate_details(jks2, password2)
+
+    serials_jks2 = set(cert["serial_number"] for cert in certs_jks2)
+
+    missing_certs = [cert for cert in certs_jks1 if cert["serial_number"] not in serials_jks2]
+
+    print("Certificats manquants dans {}:".format(jks2))
+    for cert in missing_certs:
+        print("Alias: {}, Numero de serie: {}, Expiration: {}".format(
+            cert["alias"], cert["serial_number"], cert["expiration_date"]
+        ))
+    return missing_certs
+
+def add_certificate(jks_source, jks_target, alias, password_source, password_target):
+    export_cmd = ["keytool", "-exportcert", "-keystore", jks_source, "-storepass", password_source, "-alias", alias, "-file", "/tmp/{}.cer".format(alias)]
+    import_cmd = ["keytool", "-importcert", "-keystore", jks_target, "-storepass", password_target, "-alias", alias, "-file", "/tmp/{}.cer".format(alias), "-noprompt"]
+
+    subprocess.Popen(export_cmd).wait()
+    subprocess.Popen(import_cmd).wait()
+
+    os.remove("/tmp/{}.cer".format(alias))
+
+def main():
+    jks1 = raw_input("Chemin du premier keystore JKS: ")
+    jks2 = raw_input("Chemin du second keystore JKS: ")
+    password1 = raw_input("Mot de passe du premier keystore JKS: ")
+    password2 = raw_input("Mot de passe du second keystore JKS: ")
+
+    missing_certs = compare_jks(jks1, jks2, password1, password2)
+
+    if missing_certs:
+        confirm = raw_input("Voulez-vous ajouter tous les certificats manquants au second keystore ? (oui/non): ").strip().lower()
+        if confirm == 'oui':
+            for cert in missing_certs:
+                add_certificate(jks1, jks2, cert["alias"], password1, password2)
+                print("Certificat '{}' ajoute avec succes.".format(cert["alias"]))
+        else:
+            print("Aucun certificat n'a ete ajoute.")
+    else:
+        print("Aucun certificat manquant trouve.")
+
+if __name__ == "__main__":
+    main()
