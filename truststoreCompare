@@ -1,0 +1,49 @@
+import os
+import subprocess
+
+def list_certificates(jks_file, jks_password):
+    command = f"keytool -list -keystore {jks_file} -storepass {jks_password}"
+    result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        print(f"Erreur lors de la lecture du keystore {jks_file}: {result.stderr.decode()}")
+        return []
+    return result.stdout.decode().splitlines()
+
+def compare_jks(jks1, jks2, password1, password2):
+    certs_jks1 = list_certificates(jks1, password1)
+    certs_jks2 = list_certificates(jks2, password2)
+
+    certs_jks1_aliases = set([line.split(",")[0] for line in certs_jks1 if "PrivateKeyEntry" in line or "trustedCertEntry" in line])
+    certs_jks2_aliases = set([line.split(",")[0] for line in certs_jks2 if "PrivateKeyEntry" in line or "trustedCertEntry" in line])
+
+    missing_in_jks2 = certs_jks1_aliases - certs_jks2_aliases
+    print(f"Certificats manquants dans {jks2}: {missing_in_jks2}")
+    return missing_in_jks2
+
+def add_certificate(jks_source, jks_target, alias, password_source, password_target):
+    export_cmd = f"keytool -exportcert -keystore {jks_source} -storepass {password_source} -alias {alias} -file /tmp/{alias}.cer"
+    import_cmd = f"keytool -importcert -keystore {jks_target} -storepass {password_target} -alias {alias} -file /tmp/{alias}.cer -noprompt"
+    
+    subprocess.run(export_cmd, shell=True)
+    subprocess.run(import_cmd, shell=True)
+    
+    os.remove(f"/tmp/{alias}.cer")
+
+def main():
+    jks1 = input("Chemin du premier keystore JKS: ")
+    jks2 = input("Chemin du second keystore JKS: ")
+    password1 = input("Mot de passe du premier keystore JKS: ")
+    password2 = input("Mot de passe du second keystore JKS: ")
+
+    missing_certs = compare_jks(jks1, jks2, password1, password2)
+
+    for alias in missing_certs:
+        confirm = input(f"Voulez-vous ajouter le certificat '{alias}' au second keystore ? (oui/non): ").strip().lower()
+        if confirm == 'oui':
+            add_certificate(jks1, jks2, alias, password1, password2)
+            print(f"Certificat '{alias}' ajouté avec succès.")
+        else:
+            print(f"Certificat '{alias}' non ajouté.")
+
+if __name__ == "__main__":
+    main()
