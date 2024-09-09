@@ -1,5 +1,7 @@
 import os
+import shutil
 import subprocess
+import datetime
 
 def get_certificate_details(jks_file, jks_password):
     command = ["keytool", "-list", "-v", "-keystore", jks_file, "-storepass", jks_password]
@@ -29,6 +31,13 @@ def get_certificate_details(jks_file, jks_password):
         certificates.append(current_cert)
 
     return certificates
+
+def copy_jks(jks2):
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    new_jks = "{}_NEW_{}".format(jks2, timestamp)
+    shutil.copyfile(jks2, new_jks)
+    print("Keystore copie : {}".format(new_jks))
+    return new_jks
 
 def compare_jks(jks1, jks2, password1, password2):
     certs_jks1 = get_certificate_details(jks1, password1)
@@ -60,13 +69,15 @@ def main():
     password1 = raw_input("Mot de passe du premier keystore JKS: ")
     password2 = raw_input("Mot de passe du second keystore JKS: ")
 
-    missing_certs = compare_jks(jks1, jks2, password1, password2)
+    new_jks2 = copy_jks(jks2)
+    
+    missing_certs = compare_jks(jks1, new_jks2, password1, password2)
 
     if missing_certs:
-        confirm = raw_input("Voulez-vous ajouter tous les certificats manquants au second keystore ? (oui/non): ").strip().lower()
+        confirm = raw_input("Voulez-vous ajouter tous les certificats manquants au keystore {} ? (oui/non): ".format(new_jks2)).strip().lower()
         if confirm == 'oui':
             for cert in missing_certs:
-                add_certificate(jks1, jks2, cert["alias"], password1, password2)
+                add_certificate(jks1, new_jks2, cert["alias"], password1, password2)
                 print("Certificat '{}' ajoute avec succes.".format(cert["alias"]))
         else:
             print("Aucun certificat n'a ete ajoute.")
